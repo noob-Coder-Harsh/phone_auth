@@ -13,8 +13,13 @@ class _MobileNumber001State extends State<MobileNumber001> {
   final TextEditingController _numberController = TextEditingController();
   final FirebaseAuth _auth = FirebaseAuth.instance;
   Color buttonColor = const Color(0xFF2e3b62);
+  bool _loading = false;
 
   void _verifyPhoneNumber() async {
+    setState(() {
+      _loading = true;
+    });
+
     String phoneNumber = '+91${_numberController.text.trim()}';
 
     await _auth.verifyPhoneNumber(
@@ -23,6 +28,9 @@ class _MobileNumber001State extends State<MobileNumber001> {
         await _auth.signInWithCredential(credential);
       },
       verificationFailed: (FirebaseAuthException e) {
+        setState(() {
+          _loading = false;
+        });
         if (e.code == 'invalid-phone-number') {
           throw ('The provided phone number is not valid.');
         } else {
@@ -30,6 +38,9 @@ class _MobileNumber001State extends State<MobileNumber001> {
         }
       },
       codeSent: (String verificationId, int? resendToken) {
+        setState(() {
+          _loading = false;
+        });
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -116,16 +127,20 @@ class _MobileNumber001State extends State<MobileNumber001> {
               ),
               const SizedBox(height: 20),
               InkWell(
-                onTap: _verifyPhoneNumber,
+                onTap: _loading ? null : _verifyPhoneNumber,
                 child: Container(
                   width: width * 0.9,
                   height: 50,
                   decoration: BoxDecoration(color: buttonColor),
-                  child: const Center(
-                    child: Text(
-                      'CONTINUE',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                    ),
+                  child: Center(
+                    child: _loading
+                        ? const CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          )
+                        : const Text(
+                            'CONTINUE',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                          ),
                   ),
                 ),
               )

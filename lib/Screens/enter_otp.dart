@@ -17,14 +17,19 @@ class _EnterOtpState extends State<EnterOtp> {
   final List<FocusNode> _focusNodes = List.generate(6, (index) => FocusNode());
   final FirebaseAuth _auth = FirebaseAuth.instance;
   Color buttonColor = const Color(0xFF2e3b62);
+  bool _loading = false;
+  String _verificationId;
+
+  _EnterOtpState() : _verificationId = '';
 
   @override
   void initState() {
     super.initState();
+    _verificationId = widget.verificationId;
     for (int i = 0; i < 6; i++) {
       _otpControllers[i].addListener(() {
-        if (_otpControllers[i].text.isEmpty && i > 0) {
-          FocusScope.of(context).requestFocus(_focusNodes[i - 1]);
+        if (_otpControllers[i].text.isNotEmpty && i < 5) {
+          FocusScope.of(context).requestFocus(_focusNodes[i + 1]);
         }
       });
     }
@@ -42,10 +47,14 @@ class _EnterOtpState extends State<EnterOtp> {
   }
 
   void _verifyOtp() async {
+    setState(() {
+      _loading = true;
+    });
+
     String smsCode = _otpControllers.map((controller) => controller.text).join();
 
     PhoneAuthCredential credential = PhoneAuthProvider.credential(
-      verificationId: widget.verificationId,
+      verificationId: _verificationId,
       smsCode: smsCode,
     );
 
@@ -53,9 +62,46 @@ class _EnterOtpState extends State<EnterOtp> {
       await _auth.signInWithCredential(credential);
       Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const HomePage()));
     } catch (e) {
-      throw ('Failed to sign in: ${e.toString()}');
-      // Handle error
+      throw('Failed to sign in: ${e.toString()}');
+    } finally {
+      setState(() {
+        _loading = false;
+      });
     }
+  }
+
+  void _resendOtp() async {
+    setState(() {
+      _loading = true;
+    });
+
+    await _auth.verifyPhoneNumber(
+      phoneNumber: widget.phoneNumber,
+      verificationCompleted: (PhoneAuthCredential credential) async {
+        await _auth.signInWithCredential(credential);
+      },
+      verificationFailed: (FirebaseAuthException e) {
+        if (e.code == 'invalid-phone-number') {
+          throw('The provided phone number is not valid.');
+        } else {
+          print('Phone number verification failed: ${e.message}');
+        }
+        setState(() {
+          _loading = false;
+        });
+      },
+      codeSent: (String verificationId, int? resendToken) {
+        setState(() {
+          _verificationId = verificationId;
+          _loading = false;
+        });
+      },
+      codeAutoRetrievalTimeout: (String verificationId) {
+        setState(() {
+          _verificationId = verificationId;
+        });
+      },
+    );
   }
 
   @override
@@ -71,44 +117,37 @@ class _EnterOtpState extends State<EnterOtp> {
             children: [
               const Text(
                 'Verify Phone',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 10),
               Text(
                 'Code is sent to ${widget.phoneNumber}',
                 style: const TextStyle(color: Colors.grey),
               ),
               const SizedBox(height: 20),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: List.generate(6, (index) {
                   return SizedBox(
                     width: width * 0.12,
                     child: TextField(
                       controller: _otpControllers[index],
                       focusNode: _focusNodes[index],
-                      decoration: InputDecoration(filled: true, fillColor: Colors.cyan[200], counterText: "", border: InputBorder.none),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: Colors.cyan[200],
+                        border: const OutlineInputBorder(borderSide: BorderSide.none),
+                        counterText: "",
+                      ),
                       keyboardType: TextInputType.number,
                       textAlign: TextAlign.center,
                       maxLength: 1,
                       onChanged: (value) {
-                        if (value.length == 1) {
-                          if (index != 5) {
-                            FocusScope.of(context).nextFocus();
-                          } else {
-                            FocusScope.of(context).unfocus();
-                            _verifyOtp();
-                          }
+                        if (value.isNotEmpty && index < 5) {
+                          FocusScope.of(context).requestFocus(_focusNodes[index + 1]);
                         }
-                      },
-                      onSubmitted: (value) {
-                        if (index == 5 && value.length == 1) {
-                          _verifyOtp();
-                        }
-                      },
-                      onTap: () {
-                        if (_otpControllers[index].text.isEmpty && index > 0) {
-                          FocusScope.of(context).requestFocus(_focusNodes[index - 1]);
+                        if (index == 5 && value.isNotEmpty) {
+                          _verifyOtp(); // Automatically verify OTP when last digit is entered
                         }
                       },
                     ),
@@ -116,31 +155,38 @@ class _EnterOtpState extends State<EnterOtp> {
                 }),
               ),
               const SizedBox(height: 20),
-              const Row(
+              Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Text(
-                    "Didn't receive the code? ",
+                  const Text(
+                    "Didn't receive the code?",
                     style: TextStyle(color: Colors.grey),
                   ),
-                  Text('Request Again')
+                  TextButton(
+                    onPressed: _resendOtp,
+                    style: const ButtonStyle(),
+                    child: const Text(
+                      'Request Again',
+                      style: TextStyle(color: Colors.black, fontWeight: FontWeight.normal),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 20),
-              InkWell(
-                onTap: _verifyOtp,
-                child: Container(
-                  width: width * 0.9,
-                  height: 50,
-                  decoration: BoxDecoration(color: buttonColor),
-                  child: const Center(
-                    child: Text(
-                      'VERIFY AND CONTINUE',
-                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+              _loading
+                  ? const CircularProgressIndicator()
+                  : Container(
+                      width: width * 0.9,
+                      height: 50,
+                      decoration: BoxDecoration(color: buttonColor),
+                      child: TextButton(
+                        onPressed: _verifyOtp,
+                        child: const Text(
+                          'VERIFY AND CONTINUE',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ),
             ],
           ),
         ),
